@@ -31,16 +31,32 @@ def add_bottom_border(paragraph):
 def get_template_path():
     """Get the template file path"""
     current_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(current_dir)
+    
+    # Try multiple possible locations
     possible_paths = [
         os.path.join(current_dir, '../templates/sample_formatted.docx'),
         os.path.join(current_dir, 'templates/sample_formatted.docx'),
+        os.path.join(root_dir, 'templates/sample_formatted.docx'),
+        os.path.join(current_dir, '../../templates/sample_formatted.docx'),
         'templates/sample_formatted.docx',
-        os.path.join(os.path.dirname(current_dir), 'templates/sample_formatted.docx')
+        os.path.abspath('templates/sample_formatted.docx'),
+        os.path.abspath('../templates/sample_formatted.docx'),
     ]
+    
     for path in possible_paths:
         if os.path.exists(path):
+            print(f"Found template at: {path}")
             return path
-    raise FileNotFoundError("Template file not found.")
+    
+    # Debug: print all attempted paths
+    print(f"Current dir: {current_dir}")
+    print(f"Root dir: {root_dir}")
+    print(f"Attempted paths:")
+    for path in possible_paths:
+        print(f"  - {path} (exists: {os.path.exists(path)})")
+    
+    raise FileNotFoundError("Template file not found. Checked: " + ", ".join(possible_paths))
 
 
 def get_claude_client():

@@ -8,6 +8,8 @@ env/
 venv/
 .env
 *.log
+# Allow docx files in templates directory
+!templates/*.docx
 *.docx
 .git
 .gitignore
@@ -16,4 +18,6 @@ README.md
 frontend/node_modules
 frontend/dist
 backend/.env
+# Don't ignore templates folder
+!templates/
 
