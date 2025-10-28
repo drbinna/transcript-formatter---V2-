@@ -33,8 +33,9 @@ def get_template_path():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(current_dir)
     
-    # Try multiple possible locations
+    # Try multiple possible locations (including in backend/ itself)
     possible_paths = [
+        os.path.join(current_dir, 'sample_formatted.docx'),  # In backend/ directory
         os.path.join(current_dir, '../templates/sample_formatted.docx'),
         os.path.join(current_dir, 'templates/sample_formatted.docx'),
         os.path.join(root_dir, 'templates/sample_formatted.docx'),

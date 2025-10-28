@@ -40,6 +40,7 @@ Thumbs.db
 *.docx
 !templates/*.docx
 !samples/*.docx
+!backend/sample_formatted.docx
 formatted_*.docx
 
 # Frontend builds
