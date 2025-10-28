@@ -3,7 +3,7 @@ services:
     name: oru-transcript-formatter
     env: python
     plan: free
-    buildCommand: cd backend && pip install -r requirements.txt && cd ../frontend && npm install && npm run build
+    buildCommand: bash build.sh
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ANTHROPIC_API_KEY
