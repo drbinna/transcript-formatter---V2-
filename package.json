@@ -1,0 +1,14 @@
+{
+  "name": "oru-transcript-formatter",
+  "version": "1.0.0",
+  "description": "ORU Transcript Formatting Application with Claude AI",
+  "scripts": {
+    "dev:backend": "cd backend && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "install:backend": "cd backend && pip install -r requirements.txt"
+  },
+  "keywords": ["transcript", "formatter", "claude", "ai"],
+  "author": "ORU",
+  "license": "MIT"
+}

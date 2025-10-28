@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment variables
+.env
+backend/.env
+
+# Logs
+*.log
+backend/*.log
+server.log
+server2.log
+uvicorn.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test outputs
+*.docx
+!templates/*.docx
+!samples/*.docx
+formatted_*.docx
+
+# Frontend builds
+frontend/dist/
+node_modules/
+frontend/node_modules/
+
+# Python cache
+*.pyc
+__pycache__/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
