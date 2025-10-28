@@ -3,6 +3,7 @@ services:
     name: oru-transcript-formatter
     env: python
     plan: free
+    rootDir: .
     buildCommand: |
       pip install -r backend/requirements.txt
       cd frontend && npm install && npm run build
