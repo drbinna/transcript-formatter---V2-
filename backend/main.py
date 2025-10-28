@@ -47,6 +47,33 @@ async def format_transcript_endpoint(file: UploadFile = File(...)):
 async def api_info():
     return {"message": "ORU Transcript Formatting API", "version": "1.0"}
 
+@app.get("/debug/template")
+async def debug_template():
+    """Debug endpoint to check template file location"""
+    import os
+    from formatter import get_template_path
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(current_dir)
+    
+    info = {
+        "current_dir": current_dir,
+        "root_dir": root_dir,
+        "working_dir": os.getcwd(),
+        "file_loc": __file__,
+        "templates_dir_exists": os.path.exists(os.path.join(root_dir, 'templates')),
+    }
+    
+    # Try to get template path
+    try:
+        template_path = get_template_path()
+        info["template_path"] = template_path
+        info["template_exists"] = os.path.exists(template_path)
+    except Exception as e:
+        info["error"] = str(e)
+    
+    return info
+
 # Mount static files at the end - this will serve index.html and all assets
 static_dir = os.path.join(os.path.dirname(__file__), "../frontend/dist")
 if os.path.exists(static_dir):
