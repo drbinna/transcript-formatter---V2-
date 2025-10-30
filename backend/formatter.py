@@ -6,6 +6,7 @@ from docx.oxml.ns import qn
 import io
 import os
 from anthropic import Anthropic
+import time
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -68,7 +69,7 @@ def get_claude_client():
     return Anthropic(api_key=api_key)
 
 
-def split_text_into_chunks(text: str, max_chunk_size: int = 15000) -> list[str]:
+def split_text_into_chunks(text: str, max_chunk_size: int = 3000) -> list[str]:
     """
     Split transcript into smaller chunks to avoid token limits.
     Tries to split at natural boundaries (speaker changes, sentences).
@@ -156,84 +157,147 @@ Transform the raw transcript to be PROFESSIONALLY READABLE with clear logical fl
 
 IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ ♪♪♪ ♪♪♪" by itself) that appear right after the title. Skip these noise segments to keep the transcript clean. Only include musical segments if they contain actual lyrics or meaningful musical content."""
     
-    # Split transcript into chunks if needed
+    # Split transcript into chunks if needed (slightly smaller to reduce per-call output)
     chunks = split_text_into_chunks(text)
     print(f"Processing transcript in {len(chunks)} chunk(s)")
     
     all_segments = []
     title = None
     
+    # Token management settings (stay under 4000 output tokens/minute)
+    MAX_TOKENS_PER_CALL = 1200
+    TPM_BUDGET = 3500  # keep headroom below 4000
+    tpm_window_start = time.time()
+    tokens_used_in_window = 0
+    
     for i, chunk in enumerate(chunks):
         user_message = f"""Format this raw transcript according to professional standards:\n\n{chunk}"""
         
-        # Call Claude with optimized parameters for readability
+        # Call Claude with optimized parameters and rate-limit awareness
         # Use non-streaming to avoid connection issues
-        try:
-            response = client.messages.create(
-                model="claude-sonnet-4-5-20250929",  # Using Claude Sonnet 4
-                max_tokens=8192,  # Maximum allowed for Claude Sonnet
-                temperature=0.2,  # Lower temperature for more consistent, polished output
-                system=system_prompt,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": user_message
-                    }
-                ],
-                stream=False  # Non-streaming for reliability
-            )
-            
-            # Get the response text
-            full_response = response.content[0].text if response.content else ""
-        except Exception as e:
-            print(f"Error calling Claude API: {e}")
-            # If Claude fails, return basic formatted document
-            return format_basic_transcript(text)
-        
-        # Parse the JSON response
-        # Extract JSON from markdown fences if present
-        if '```json' in full_response:
-            full_response = full_response.split('```json')[1].split('```')[0]
-        elif '```' in full_response:
-            full_response = full_response.split('```')[1]
-        
-        import json
-        try:
-            chunk_data = json.loads(full_response)
-            print(f"Successfully parsed chunk {i+1} with {len(chunk_data.get('segments', []))} segments")
-            
-            # Store title from first chunk only
-            if i == 0 and chunk_data.get("title"):
-                title = chunk_data["title"]
-            
-            # Collect segments from this chunk
-            all_segments.extend(chunk_data.get("segments", []))
-            
-        except json.JSONDecodeError as e:
-            print(f"JSON parsing error in chunk {i+1}: {e}")
-            
-            # Try to repair truncated JSON
+        # Simple per-minute pacing based on previous outputs
+        now = time.time()
+        elapsed = now - tpm_window_start
+        if elapsed >= 60:
+            tpm_window_start = now
+            tokens_used_in_window = 0
+        if tokens_used_in_window + MAX_TOKENS_PER_CALL > TPM_BUDGET:
+            sleep_for = 60 - elapsed if elapsed < 60 else 0
+            if sleep_for > 0:
+                print(f"TPM budget nearly exhausted, sleeping {sleep_for:.1f}s to reset window...")
+                time.sleep(sleep_for)
+                tpm_window_start = time.time()
+                tokens_used_in_window = 0
+
+        attempts = 0
+        backoff = 2
+        while True:
+            attempts += 1
             try:
-                last_brace = full_response.rfind('}')
-                second_last_brace = full_response.rfind('}', 0, last_brace) if last_brace > 0 else -1
+                response = client.messages.create(
+                    model="claude-sonnet-4-5-20250929",
+                    max_tokens=MAX_TOKENS_PER_CALL,
+                    temperature=0.2,
+                    system=system_prompt,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": user_message
+                        }
+                    ],
+                    stream=False
+                )
+                # Track usage if available
+                try:
+                    output_tokens = getattr(getattr(response, "usage", None), "output_tokens", None)
+                    if isinstance(output_tokens, int):
+                        tokens_used_in_window += output_tokens
+                    else:
+                        tokens_used_in_window += MAX_TOKENS_PER_CALL // 2  # conservative estimate
+                except Exception:
+                    tokens_used_in_window += MAX_TOKENS_PER_CALL // 2
+                full_response = response.content[0].text if response.content else ""
+                break
+            except Exception as e:
+                msg = str(e)
+                # Retry on rate limit errors
+                if "rate_limit" in msg or "429" in msg:
+                    if attempts >= 3:
+                        print(f"Rate limit after retries on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
+                        # Preserve content by adding as a narration segment
+                        all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
+                        full_response = None
+                        break
+                    # wait a bit longer before retrying
+                    print(f"Rate limited, retrying in {backoff}s (attempt {attempts})...")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                # Non-retryable error => fallback
+                print(f"Error calling Claude API on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
+                all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
+                full_response = None
+                break
+        
+        if full_response:
+            # Parse the JSON response
+            # Extract JSON from markdown fences if present
+            if '```json' in full_response:
+                full_response = full_response.split('```json')[1].split('```')[0]
+            elif '```' in full_response:
+                full_response = full_response.split('```')[1]
+            
+            import json
+            try:
+                chunk_data = json.loads(full_response)
+                print(f"Successfully parsed chunk {i+1} with {len(chunk_data.get('segments', []))} segments")
                 
-                if last_brace > 0 and second_last_brace > 0:
-                    repaired = full_response[:second_last_brace+1] + ']}'
-                    try:
-                        chunk_data = json.loads(repaired)
-                        print(f"Successfully repaired chunk {i+1} JSON with {len(chunk_data.get('segments', []))} segments")
-                        if i == 0 and chunk_data.get("title"):
-                            title = chunk_data["title"]
-                        all_segments.extend(chunk_data.get("segments", []))
-                    except json.JSONDecodeError:
-                        repaired = full_response[:last_brace+1] + ']}'
-                        chunk_data = json.loads(repaired)
-                        print(f"Successfully repaired chunk {i+1} JSON with {len(chunk_data.get('segments', []))} segments")
-                        if i == 0 and chunk_data.get("title"):
-                            title = chunk_data["title"]
-                        all_segments.extend(chunk_data.get("segments", []))
-            except Exception as repair_err:
-                print(f"JSON repair failed for chunk {i+1}: {repair_err}")
+                # Store title from first chunk only
+                if i == 0 and chunk_data.get("title"):
+                    title = chunk_data["title"]
+                
+                # Collect segments from this chunk
+                parsed_segments = chunk_data.get("segments", [])
+                all_segments.extend(parsed_segments)
+                
+                # Coverage check: ensure we didn't lose too much content
+                try:
+                    combined_len = sum(len(seg.get("content", "")) for seg in parsed_segments)
+                    if combined_len < 0.7 * len(chunk):
+                        print(f"Low coverage for chunk {i+1} (parsed {combined_len} of {len(chunk)} chars). Appending raw chunk to preserve completeness.")
+                        all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
+                except Exception:
+                    pass
+                
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error in chunk {i+1}: {e}")
+                
+                # Try to repair truncated JSON
+                try:
+                    last_brace = full_response.rfind('}')
+                    second_last_brace = full_response.rfind('}', 0, last_brace) if last_brace > 0 else -1
+                    
+                    if last_brace > 0 and second_last_brace > 0:
+                        repaired = full_response[:second_last_brace+1] + ']}'
+                        try:
+                            chunk_data = json.loads(repaired)
+                            print(f"Successfully repaired chunk {i+1} JSON with {len(chunk_data.get('segments', []))} segments")
+                            if i == 0 and chunk_data.get("title"):
+                                title = chunk_data["title"]
+                            all_segments.extend(chunk_data.get("segments", []))
+                        except json.JSONDecodeError:
+                            repaired = full_response[:last_brace+1] + ']}'
+                            chunk_data = json.loads(repaired)
+                            print(f"Successfully repaired chunk {i+1} JSON with {len(chunk_data.get('segments', []))} segments")
+                            if i == 0 and chunk_data.get("title"):
+                                title = chunk_data["title"]
+                            all_segments.extend(chunk_data.get("segments", []))
+                except Exception as repair_err:
+                    print(f"JSON repair failed for chunk {i+1}: {repair_err}. Adding raw chunk content to preserve completeness.")
+                    all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
+        else:
+            # No model response (e.g., after rate limit retries) -> add raw chunk content
+            all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
     
     # Combine all segments into one structure
     data = {
