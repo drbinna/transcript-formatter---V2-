@@ -324,10 +324,7 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 except Exception as repair_err:
                     print(f"JSON repair failed for chunk {i+1}: {repair_err}. Adding raw chunk content to preserve completeness.")
                     all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
-            except Exception as unexpected_parse_err:
-                # Final safety net: never let a parse error fail the request
-                print(f"Unexpected parse error in chunk {i+1}: {unexpected_parse_err}. Adding raw chunk content.")
-                all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
+            
         else:
             # No model response (e.g., after retries) -> add raw chunk
             all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
