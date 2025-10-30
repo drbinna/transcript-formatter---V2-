@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from formatter import format_transcript
-import io
 import os
 from dotenv import load_dotenv
 import asyncio
@@ -33,9 +32,6 @@ async def format_transcript_endpoint(file: UploadFile = File(...)):
     # Read the uploaded file content
     content = await file.read()
     text = content.decode('utf-8')
-    
-    # Extract filename for potential title
-    filename = file.filename or "transcript"
     
     # Format the transcript (serialized to avoid bursts)
     async with format_semaphore:
