@@ -103,7 +103,6 @@ Transform the raw transcript following these guidelines."""
         model="claude-sonnet-4-5-20250929",
         max_tokens=1200,
         temperature=0.0,
-        top_p=1.0,
         system=system_prompt,
         messages=[
             {

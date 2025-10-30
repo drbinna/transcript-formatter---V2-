@@ -213,7 +213,6 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                     model="claude-sonnet-4-5-20250929",
                     max_tokens=MAX_TOKENS_PER_CALL,
                     temperature=0.0,
-                    top_p=1.0,
                     system=system_prompt,
                     messages=[
                         {
