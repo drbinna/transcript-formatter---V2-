@@ -51,7 +51,11 @@ function App() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to format transcript')
+        let details = ''
+        try {
+          details = await response.text()
+        } catch {}
+        throw new Error(`Failed to format transcript (${response.status})${details ? `: ${details.slice(0, 300)}` : ''}`)
       }
 
       setProgress(95)
