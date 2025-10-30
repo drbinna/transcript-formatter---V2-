@@ -71,7 +71,7 @@ def get_claude_client():
     return Anthropic(api_key=api_key, timeout=60, max_retries=3)
 
 
-def split_text_into_chunks(text: str, max_chunk_size: int = 3000) -> list[str]:
+def split_text_into_chunks(text: str, max_chunk_size: int = 2500) -> list[str]:
     """
     Split transcript into smaller chunks to avoid token limits.
     Tries to split at natural boundaries (speaker changes, sentences).
@@ -172,6 +172,12 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
     tpm_window_start = time.time()
     tokens_used_in_window = 0
     
+    # Optional small delay between chunk calls to avoid crossing OPM windows in hosted envs
+    try:
+        CHUNK_SLEEP_SECONDS = float(os.getenv('CHUNK_SLEEP_SECONDS', '1.5'))
+    except Exception:
+        CHUNK_SLEEP_SECONDS = 1.5
+
     for i, chunk in enumerate(chunks):
         user_message = f"""Format this raw transcript according to professional standards:\n\n{chunk}"""
         
@@ -190,6 +196,12 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 time.sleep(sleep_for)
                 tpm_window_start = time.time()
                 tokens_used_in_window = 0
+
+        # add small spacing between chunk requests
+        try:
+            time.sleep(CHUNK_SLEEP_SECONDS)
+        except Exception:
+            pass
 
         attempts = 0
         backoff = 2
