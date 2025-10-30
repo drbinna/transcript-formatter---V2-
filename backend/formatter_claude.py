@@ -48,7 +48,7 @@ def get_claude_client():
     api_key = os.getenv('ANTHROPIC_API_KEY')
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY not found in environment")
-    return Anthropic(api_key=api_key, timeout=60, max_retries=3)
+    return Anthropic(api_key=api_key, timeout=120, max_retries=5)
 
 
 def format_transcript_with_claude(text: str) -> bytes:

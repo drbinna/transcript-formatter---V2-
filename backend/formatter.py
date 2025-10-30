@@ -178,6 +178,7 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
     except Exception:
         CHUNK_SLEEP_SECONDS = 1.5
 
+    consecutive_failed_chunks = 0
     for i, chunk in enumerate(chunks):
         user_message = f"""Format this raw transcript according to professional standards:\n\n{chunk}"""
         
@@ -232,6 +233,7 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 except Exception:
                     tokens_used_in_window += MAX_TOKENS_PER_CALL // 2
                 full_response = response.content[0].text if response.content else ""
+                consecutive_failed_chunks = 0
                 break
             except Exception as e:
                 msg = str(e)
@@ -241,6 +243,7 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                         print(f"Rate limit after retries on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
                         all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
                         full_response = None
+                        consecutive_failed_chunks += 1
                         break
                     # wait a bit longer before retrying
                     print(f"Rate limited, retrying in {backoff}s (attempt {attempts})...")
@@ -253,6 +256,7 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                         print(f"Network/server error after retries on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
                         all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
                         full_response = None
+                        consecutive_failed_chunks += 1
                         break
                     print(f"Connection/server error, retrying in {backoff}s (attempt {attempts})...")
                     time.sleep(backoff)
@@ -262,6 +266,7 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 print(f"Error calling Claude API on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
                 all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
                 full_response = None
+                consecutive_failed_chunks += 1
                 break
         
         if full_response:
@@ -323,6 +328,16 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
         else:
             # No model response (e.g., after retries) -> add raw chunk
             all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
+
+        # If multiple chunks failed consecutively, pause to let network/OPM recover
+        if consecutive_failed_chunks >= 2:
+            cooldown = float(os.getenv('RUN_COOLDOWN_SECONDS', '25'))
+            print(f"Consecutive failures detected ({consecutive_failed_chunks}). Cooling down for {cooldown}s...")
+            try:
+                time.sleep(cooldown)
+            except Exception:
+                pass
+            consecutive_failed_chunks = 0
     
     # Combine all segments into one structure
     data = {
