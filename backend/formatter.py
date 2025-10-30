@@ -66,7 +66,8 @@ def get_claude_client():
     api_key = os.getenv('ANTHROPIC_API_KEY')
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY not found in environment")
-    return Anthropic(api_key=api_key)
+    # Add sane defaults for hosted environments (Render) where transient network issues can occur
+    return Anthropic(api_key=api_key, timeout=60, max_retries=3)
 
 
 def split_text_into_chunks(text: str, max_chunk_size: int = 3000) -> list[str]:
@@ -230,6 +231,17 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                         break
                     # wait a bit longer before retrying
                     print(f"Rate limited, retrying in {backoff}s (attempt {attempts})...")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                # Retry on transient connection/server errors
+                if "Connection error" in msg or "api_error" in msg or "500" in msg:
+                    if attempts >= 3:
+                        print(f"Network/server error after retries on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
+                        all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
+                        full_response = None
+                        break
+                    print(f"Connection/server error, retrying in {backoff}s (attempt {attempts})...")
                     time.sleep(backoff)
                     backoff *= 2
                     continue
