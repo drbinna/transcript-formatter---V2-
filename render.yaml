@@ -7,7 +7,12 @@ services:
     buildCommand: |
       pip install -r backend/requirements.txt
       cd frontend && npm install && npm run build
+      echo "Checking templates directory..."
+      ls -la templates/
+      echo "Copying template file..."
       cp templates/sample_formatted.docx backend/sample_formatted.docx
+      echo "Verifying copy..."
+      ls -la backend/ | grep docx
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ANTHROPIC_API_KEY
