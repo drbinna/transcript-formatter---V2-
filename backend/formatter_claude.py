@@ -3,7 +3,6 @@ from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-import re
 import io
 import os
 from anthropic import Anthropic
@@ -49,7 +48,7 @@ def get_claude_client():
     api_key = os.getenv('ANTHROPIC_API_KEY')
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY not found in environment")
-    return Anthropic(api_key=api_key)
+    return Anthropic(api_key=api_key, timeout=60, max_retries=3)
 
 
 def format_transcript_with_claude(text: str) -> bytes:
@@ -102,8 +101,9 @@ Transform the raw transcript following these guidelines."""
     # Call Claude
     response = client.messages.create(
         model="claude-sonnet-4-5-20250929",
-        max_tokens=8192,
-        temperature=0.3,
+        max_tokens=1200,
+        temperature=0.0,
+        top_p=1.0,
         system=system_prompt,
         messages=[
             {
@@ -111,14 +111,11 @@ Transform the raw transcript following these guidelines."""
                 "content": user_message
             }
         ],
-        stream=True
+        stream=False
     )
     
-    # Collect streaming response
-    full_response = ""
-    for event in response:
-        if event.type == "content_block_delta" and event.delta.text:
-            full_response += event.delta.text
+    # Get the response text
+    full_response = response.content[0].text if response.content else ""
     
     # Parse the JSON response
     # Extract JSON from markdown fences if present

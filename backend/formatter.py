@@ -8,6 +8,7 @@ import os
 from anthropic import Anthropic
 import time
 from dotenv import load_dotenv
+from formatter_rule_based import format_transcript as rule_format_transcript
 
 # Load environment variables
 load_dotenv()
@@ -198,7 +199,8 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 response = client.messages.create(
                     model="claude-sonnet-4-5-20250929",
                     max_tokens=MAX_TOKENS_PER_CALL,
-                    temperature=0.2,
+                    temperature=0.0,
+                    top_p=1.0,
                     system=system_prompt,
                     messages=[
                         {
@@ -546,5 +548,5 @@ def format_transcript(text: str, title: str = None) -> bytes:
         return format_transcript_with_claude(text)
     except Exception as e:
         print(f"Error in format_transcript: {e}")
-        # Fallback to basic formatting
-        return format_basic_transcript(text)
+        # Fallback to rule-based formatting for consistency
+        return rule_format_transcript(text)

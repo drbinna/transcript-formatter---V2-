@@ -5,11 +5,15 @@ from formatter import format_transcript
 import io
 import os
 from dotenv import load_dotenv
+import asyncio
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = FastAPI(title="ORU Transcript Formatter")
+
+# Serialize formatting requests to reduce rate/egress spikes in hosted envs
+format_semaphore = asyncio.Semaphore(1)
 
 # Enable CORS for local development
 app.add_middleware(
@@ -33,8 +37,9 @@ async def format_transcript_endpoint(file: UploadFile = File(...)):
     # Extract filename for potential title
     filename = file.filename or "transcript"
     
-    # Format the transcript using Claude
-    docx_bytes = format_transcript(text)
+    # Format the transcript (serialized to avoid bursts)
+    async with format_semaphore:
+        docx_bytes = format_transcript(text)
     
     # Return as downloadable .docx
     return Response(
