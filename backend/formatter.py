@@ -7,7 +7,6 @@ import io
 import os
 from anthropic import Anthropic
 import time
-import re
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -101,115 +100,6 @@ def split_text_into_chunks(text: str, max_chunk_size: int = 3000) -> list[str]:
     
     return chunks
 
-
-def pseudo_segment_chunk(raw_text: str) -> list[dict]:
-    """Heuristically split a raw chunk into segments resembling the Claude schema.
-    This preserves document structure when AI calls fail.
-    """
-    segments: list[dict] = []
-    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
-
-    scripture_pattern = re.compile(r"\b([1-3]?\s?[A-Z][a-zA-Z]+)\s+\d+:\d+(?:-\d+)?\b")
-    speaker_pattern = re.compile(r"^([A-Z][A-Za-z .'-]{1,40}):\s*(.*)")
-
-    buffer: list[str] = []
-    buffer_type: str | None = None
-    buffer_speaker: str | None = None
-
-    def flush_buffer():
-        nonlocal buffer, buffer_type, buffer_speaker
-        if not buffer:
-            return
-        content = " ".join(buffer).strip()
-        if not content:
-            buffer = []
-            buffer_type = None
-            buffer_speaker = None
-            return
-        if buffer_type == "speaker":
-            segments.append({
-                "type": "speaker",
-                "speaker": buffer_speaker,
-                "content": content,
-                "emphasis": []
-            })
-        elif buffer_type == "scripture":
-            segments.append({
-                "type": "scripture",
-                "speaker": None,
-                "content": content,
-                "emphasis": []
-            })
-        elif buffer_type == "music":
-            segments.append({
-                "type": "music",
-                "speaker": None,
-                "content": content,
-                "emphasis": []
-            })
-        else:
-            segments.append({
-                "type": "narration",
-                "speaker": None,
-                "content": content,
-                "emphasis": []
-            })
-        buffer = []
-        buffer_type = None
-        buffer_speaker = None
-
-    for ln in lines:
-        # Music lines
-        if '♪' in ln:
-            flush_buffer()
-            buffer_type = "music"
-            buffer.append(ln)
-            flush_buffer()
-            continue
-
-        # Scripture references
-        if scripture_pattern.search(ln):
-            flush_buffer()
-            buffer_type = "scripture"
-            buffer.append(ln)
-            flush_buffer()
-            continue
-
-        # Speaker lines: Name: content
-        m = speaker_pattern.match(ln)
-        if m:
-            flush_buffer()
-            buffer_type = "speaker"
-            buffer_speaker = m.group(1)
-            speaker_rest = m.group(2)
-            if speaker_rest:
-                buffer.append(speaker_rest)
-            else:
-                buffer.append("")
-            # do not flush immediately; allow following lines to join until next marker
-            continue
-
-        # Default narration; keep accumulating until a marker is found
-        if buffer_type in (None, "narration"):
-            buffer_type = "narration"
-            buffer.append(ln)
-        else:
-            # If we were in speaker/scripture/music and encountered plain text, decide:
-            # continue speaker block for coherence
-            if buffer_type == "speaker":
-                buffer.append(ln)
-            else:
-                flush_buffer()
-                buffer_type = "narration"
-                buffer.append(ln)
-
-    flush_buffer()
-
-    # Fallback single narration if segmentation failed
-    if not segments:
-        segments.append({"type": "narration", "speaker": None, "content": raw_text, "emphasis": []})
-    return segments
-
 def format_transcript_with_claude(text: str) -> bytes:
     """
     Use Claude AI to format the transcript according to professional standards.
@@ -300,12 +190,6 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 tpm_window_start = time.time()
                 tokens_used_in_window = 0
 
-        # small jitter to avoid bursty requests in hosted envs
-        try:
-            time.sleep(0.5 + (hash(chunk) % 100) / 200.0)  # 0.5s to ~1.0s
-        except Exception:
-            pass
-
         attempts = 0
         backoff = 2
         while True:
@@ -340,9 +224,8 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 # Retry on rate limit errors
                 if "rate_limit" in msg or "429" in msg:
                     if attempts >= 3:
-                        print(f"Rate limit after retries on chunk {i+1}: {e}. Using pseudo-segmentation fallback.")
-                        fallback = pseudo_segment_chunk(chunk)
-                        all_segments.extend(fallback)
+                        print(f"Rate limit after retries on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
+                        all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
                         full_response = None
                         break
                     # wait a bit longer before retrying
@@ -353,9 +236,8 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                 # Retry on transient connection/server errors
                 if "Connection error" in msg or "api_error" in msg or "500" in msg:
                     if attempts >= 3:
-                        print(f"Network/server error after retries on chunk {i+1}: {e}. Using pseudo-segmentation fallback.")
-                        fallback = pseudo_segment_chunk(chunk)
-                        all_segments.extend(fallback)
+                        print(f"Network/server error after retries on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
+                        all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
                         full_response = None
                         break
                     print(f"Connection/server error, retrying in {backoff}s (attempt {attempts})...")
@@ -363,9 +245,8 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                     backoff *= 2
                     continue
                 # Non-retryable error => fallback
-                print(f"Error calling Claude API on chunk {i+1}: {e}. Using pseudo-segmentation fallback.")
-                fallback = pseudo_segment_chunk(chunk)
-                all_segments.extend(fallback)
+                print(f"Error calling Claude API on chunk {i+1}: {e}. Adding raw chunk content to preserve completeness.")
+                all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
                 full_response = None
                 break
         
@@ -423,13 +304,11 @@ IMPORTANT: DO NOT include standalone musical symbol segments (like "♪♪♪ �
                                 title = chunk_data["title"]
                             all_segments.extend(chunk_data.get("segments", []))
                 except Exception as repair_err:
-                    print(f"JSON repair failed for chunk {i+1}: {repair_err}. Using pseudo-segmentation fallback.")
-                    fallback = pseudo_segment_chunk(chunk)
-                    all_segments.extend(fallback)
+                    print(f"JSON repair failed for chunk {i+1}: {repair_err}. Adding raw chunk content to preserve completeness.")
+                    all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
         else:
-            # No model response (e.g., after retries) -> pseudo segment
-            fallback = pseudo_segment_chunk(chunk)
-            all_segments.extend(fallback)
+            # No model response (e.g., after retries) -> add raw chunk
+            all_segments.append({"type": "narration", "content": chunk, "emphasis": []})
     
     # Combine all segments into one structure
     data = {
