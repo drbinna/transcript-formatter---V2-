@@ -45,10 +45,28 @@ function App() {
         ? '/format' 
         : 'http://localhost:8000/format'
       
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        body: formData,
-      })
+      // Simple retry for transient 502/504/network errors
+      const doRequest = async (): Promise<Response> => {
+        let attempt = 0
+        let lastErr: any
+        while (attempt < 3) {
+          try {
+            const resp = await fetch(apiUrl, { method: 'POST', body: formData })
+            if (resp.status === 502 || resp.status === 504) {
+              throw new Error(`Upstream ${resp.status}`)
+            }
+            return resp
+          } catch (e) {
+            lastErr = e
+            attempt++
+            const delay = 500 * Math.pow(2, attempt - 1)
+            await new Promise((r) => setTimeout(r, delay))
+          }
+        }
+        throw lastErr ?? new Error('Network error')
+      }
+
+      const response = await doRequest()
 
       if (!response.ok) {
         let details = ''
